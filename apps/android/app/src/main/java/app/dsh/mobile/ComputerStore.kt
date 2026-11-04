@@ -2,15 +2,15 @@ package app.dsh.mobile
 
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.security.crypto.MasterKeys
 import org.json.JSONArray
 import org.json.JSONObject
 
 class ComputerStore(context: Context) {
     private val preferences = EncryptedSharedPreferences.create(
-        context,
         "computers",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+        context,
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )

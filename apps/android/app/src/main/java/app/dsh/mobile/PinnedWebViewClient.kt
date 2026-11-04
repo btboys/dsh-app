@@ -10,7 +10,7 @@ import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 
-class PinnedWebViewClient(private val computer: Computer) : WebViewClient() {
+open class PinnedWebViewClient(private val computer: Computer) : WebViewClient() {
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
         val expected = computer.certificateSha256
         val bytes = SslCertificate.saveState(error.certificate)?.getByteArray("x509-certificate")
