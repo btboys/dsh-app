@@ -23,7 +23,8 @@ class SessionActivity : AppCompatActivity() {
                 }
             }
         }
-        CookieManager.getInstance().setCookie(computer.origin, "dsh_app=${computer.token}; Secure; HttpOnly; SameSite=Strict")
+        val secure = if (computer.origin.startsWith("https://")) "; Secure" else ""
+        CookieManager.getInstance().setCookie(computer.origin, "dsh_app=${computer.token}; HttpOnly; SameSite=Strict$secure")
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val bar = LinearLayout(this)
         bar.addView(action("审批") { startActivity(Intent(this, ApprovalsActivity::class.java)) })
@@ -34,7 +35,7 @@ class SessionActivity : AppCompatActivity() {
         root.addView(web, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
         thread {
-            GatewayClient(computer).openSession()
+            runCatching { GatewayClient(computer).openSession() }
             runOnUiThread { web.loadUrl(computer.origin) }
         }
         startForegroundService(Intent(this, LinkService::class.java))

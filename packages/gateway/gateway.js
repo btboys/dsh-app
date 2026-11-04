@@ -19,7 +19,8 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   let listening = false
 
   function origins() {
-    const local = lanHosts().map(host => `https://${host}:${boundPort()}`)
+    const scheme = tls ? 'https' : 'http'
+    const local = lanHosts().map(host => `${scheme}://${host}:${boundPort()}`)
     return [...new Set([...local, ...configuredOrigins.map(normalizeOrigin)])]
   }
 
@@ -87,7 +88,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     }
     if (req.method === 'POST' && url.pathname === '/dsh-app/session') {
       res.writeHead(204, {
-        'set-cookie': `dsh_app=${encodeURIComponent(parseBearer(req.headers.authorization) ?? '')}; Path=/; Secure; HttpOnly; SameSite=Strict`,
+        'set-cookie': `dsh_app=${encodeURIComponent(parseBearer(req.headers.authorization) ?? '')}; Path=/; ${tls ? 'Secure; ' : ''}HttpOnly; SameSite=Strict`,
         'cache-control': 'no-store',
       })
       res.end()

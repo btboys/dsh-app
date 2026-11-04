@@ -25,10 +25,8 @@ export const Config = z.object({
 export async function apply(ctx, config = {}) {
   const store = new DeviceStore(join(HOME, 'devices'))
   await store.load()
-  const tls = await loadOrCreateCertificate(join(HOME, 'tls'))
   const gateway = createGateway({
     store,
-    tls,
     upstreamOrigin: ctx.webApp.getAdvertisedUrl(),
     port: config.port ?? 3443,
     remoteOrigins: config.remoteOrigins ?? [],
