@@ -18,26 +18,25 @@ jobs:
       - name: Install Android SDK
         run: |
           set -eux
-          sdk="${RUNNER_TEMP}/android-sdk"
-          mkdir -p "${sdk}/cmdline-tools"
-          curl -fsSL -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
-          unzip -q cmdline-tools.zip -d "${sdk}/cmdline-tools"
-          mv "${sdk}/cmdline-tools/cmdline-tools" "${sdk}/cmdline-tools/latest"
+          sdk="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          test -x "${sdk}/cmdline-tools/latest/bin/sdkmanager"
           echo "ANDROID_HOME=${sdk}" >> "${GITHUB_ENV}"
-          echo "${sdk}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
-          echo "${sdk}/platform-tools" >> "${GITHUB_PATH}"
+          echo "ANDROID_SDK_ROOT=${sdk}" >> "${GITHUB_ENV}"
           yes | "${sdk}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk}" --licenses >/dev/null
           "${sdk}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk}" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         working-directory: apps/android
         run: |
           set -o pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          export ANDROID_HOME="${sdk}"
+          export ANDROID_SDK_ROOT="${sdk}"
           chmod +x gradlew
           ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee "${RUNNER_TEMP}/gradle.log"
       - name: Publish build error
         if: failure()
         run: |
-          tail -n 40 "${RUNNER_TEMP}/gradle.log" | while IFS= read -r line; do
+          awk '/What went wrong/,/Exception is/' "${RUNNER_TEMP}/gradle.log" | while IFS= read -r line; do
             echo "::error::${line}"
           done
       - uses: actions/upload-artifact@v4
