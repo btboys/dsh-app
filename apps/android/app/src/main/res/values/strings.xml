@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH</string>
+    <string name="link_channel">DSH 连接</string>
+    <string name="link_running">正在保持与电脑的连接</string>
+</resources>
