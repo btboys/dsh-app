@@ -23,6 +23,8 @@ test('an unpaired request is not forwarded to DSH', async () => {
     workspaces: () => [],
   })
   const status = await gateway.start()
+  // The gateway probes its upstream once at startup; only phone requests must be blocked.
+  forwarded = 0
   const response = await fetch(`http://127.0.0.1:${status.port}/`)
   assert.equal(response.status, 401)
   assert.equal(forwarded, 0)
@@ -241,4 +243,27 @@ test('revoking a device closes the stream it already holds', async t => {
   controller.abort()
   const denied = await fetch(`${origin}/dsh-app/approvals`, { headers: { authorization: `Bearer ${device.token}` } })
   assert.equal(denied.status, 401)
+})
+
+test('diagnostics report the upstream they actually reached', async t => {
+  const upstream = createServer((req, res) => res.end('ok'))
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => upstream.close(resolve)))
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const healthy = createGateway({
+    store: new DeviceStore(dir),
+    upstreamOrigin: `http://127.0.0.1:${upstream.address().port}`,
+    port: 0,
+  })
+  const healthyStatus = await healthy.start()
+  t.after(() => healthy.stop())
+  assert.equal(healthyStatus.checks.find(check => check.name === 'upstream').ok, true)
+
+  const broken = createGateway({ store: new DeviceStore(dir), upstreamOrigin: 'http://127.0.0.1:1', port: 0 })
+  const brokenStatus = await broken.start()
+  t.after(() => broken.stop())
+  const check = brokenStatus.checks.find(item => item.name === 'upstream')
+  assert.equal(check.ok, false)
+  assert.equal(brokenStatus.checks.some(item => !item.ok), true)
 })

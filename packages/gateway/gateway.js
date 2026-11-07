@@ -19,6 +19,8 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   let server
   let beacon
   let listening = false
+  let upstream = { reachable: false, checkedAt: 0 }
+  let probeTimer
 
   function origins() {
     const scheme = tls ? 'https' : 'http'
@@ -30,17 +32,41 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     return server?.address()?.port ?? port
   }
 
+  /**
+   * Asks the DSH web app whether it answers; a phone should not be told the computer is
+   * healthy when it is not. Uses a one-shot request so probing never keeps a socket open.
+   */
+  function probeUpstream() {
+    return new Promise(resolve => {
+      const target = new URL(upstreamOrigin)
+      const send = target.protocol === 'https:' ? httpsRequest : httpRequest
+      const done = reachable => {
+        upstream = { reachable, checkedAt: Date.now() }
+        resolve(reachable)
+      }
+      const request = send(target, { method: 'GET', timeout: 1500, agent: false }, response => {
+        response.resume()
+        response.on('end', () => done(true))
+        response.on('error', () => done(false))
+      })
+      request.on('timeout', () => { request.destroy(); done(false) })
+      request.on('error', () => done(false))
+      request.end()
+    })
+  }
+
   function status() {
     return {
       listening,
       port: boundPort(),
       upstreamOrigin,
+      upstreamCheckedAt: upstream.checkedAt,
       origins: origins(),
       certificateSha256: tls ? certificateSha256(tls.cert) : undefined,
       ...store.publicStatus(),
       checks: diagnose({
         upstreamOrigin,
-        upstreamReachable: true,
+        upstreamReachable: upstream.reachable,
         listening,
         origins: origins(),
         pairedDevices: store.publicStatus().devices.length,
@@ -99,7 +125,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/diagnostics') {
       return send(res, 200, diagnose({
         upstreamOrigin,
-        upstreamReachable: true,
+        upstreamReachable: upstream.reachable,
         listening,
         origins: origins(),
         pairedDevices: store.publicStatus().devices.length,
@@ -269,6 +295,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       return () => drop(listener)
     },
     async start() {
+      await probeUpstream()
       server = tls ? createHttpsServer(tls, handler) : createHttpServer(handler)
       server.on('upgrade', (req, socket, head) => proxyUpgrade(req, socket, head, store, upstreamOrigin))
       await new Promise((resolve, reject) => {
@@ -291,9 +318,13 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
         beacon?.close()
         beacon = undefined
       }
+      probeTimer = setInterval(() => { probeUpstream().catch(() => {}) }, 15_000)
+      probeTimer.unref?.()
       return status()
     },
     async stop() {
+      if (probeTimer) clearInterval(probeTimer)
+      probeTimer = undefined
       for (const record of [...pending.values()]) record.reject(phoneError('no_phone'))
       for (const stream of eventStreams.keys()) stream.end()
       eventStreams.clear()
