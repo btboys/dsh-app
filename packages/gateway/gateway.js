@@ -4,7 +4,7 @@ import { createServer as createHttpsServer, request as httpsRequest } from 'node
 import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { diagnose } from './diagnostics.js'
-import { previewFile, safeChild } from './files.js'
+import { previewFile, safeRealChild } from './files.js'
 import { mobileScript, mobileStyle } from './layout.js'
 import { certificateSha256, normalizeOrigin, parseBearer } from './protocol.js'
 
@@ -36,6 +36,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       port: boundPort(),
       upstreamOrigin,
       origins: origins(),
+      certificateSha256: tls ? certificateSha256(tls.cert) : undefined,
       ...store.publicStatus(),
       checks: diagnose({
         upstreamOrigin,
@@ -48,6 +49,22 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   }
 
   async function handler(req, res) {
+    try {
+      await route(req, res)
+    } catch (error) {
+      if (res.headersSent) {
+        res.destroy()
+        return
+      }
+      if (error.status) {
+        send(res, error.status, { error: error.code ?? 'request_failed' })
+        return
+      }
+      send(res, 500, { error: 'internal_error' })
+    }
+  }
+
+  async function route(req, res) {
     const url = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`)
     if (req.method === 'GET' && url.pathname === '/dsh-app/discover') {
       return send(res, 200, { name: 'dsh-app', origins: origins(), port: boundPort() })
@@ -120,7 +137,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/files') {
       const workspace = workspaces().find(item => item.id === url.searchParams.get('workspace'))
       if (!workspace) return send(res, 404, { error: 'workspace_not_found' })
-      const target = safeChild(workspace.path, url.searchParams.get('path') || '.')
+      const target = await safeRealChild(workspace.path, url.searchParams.get('path') || '.')
       if (!target) return send(res, 403, { error: 'outside_workspace' })
       const listing = await workspace.list(target)
       return send(res, 200, listing)
@@ -128,7 +145,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/files/preview') {
       const workspace = workspaces().find(item => item.id === url.searchParams.get('workspace'))
       if (!workspace) return send(res, 404, { error: 'workspace_not_found' })
-      const target = safeChild(workspace.path, url.searchParams.get('path') || '')
+      const target = await safeRealChild(workspace.path, url.searchParams.get('path') || '')
       if (!target) return send(res, 403, { error: 'outside_workspace' })
       const bytes = await workspace.read(target)
       const preview = previewFile({ path: target, bytes, limit: TEXT_LIMIT })
@@ -193,6 +210,13 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     return Object.assign(new Error(reason), { reason })
   }
 
+  function pairing(origin) {
+    return {
+      ...store.issuePairing({ origin }),
+      certificateSha256: tls ? certificateSha256(tls.cert) : undefined,
+    }
+  }
+
   function notify(item) {
     const record = { ...item, id: randomBytes(8).toString('hex') }
     for (const listener of listeners) listener(record)
@@ -220,6 +244,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
 
   return {
     status,
+    pairing,
     publish,
     notify,
     listenerCount: () => listeners.size,
@@ -262,7 +287,12 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       listeners.clear()
       if (beacon) beacon.close()
       if (!server) return
-      await new Promise(resolve => server.close(resolve))
+      // Keep-alive clients would otherwise hold the listener open forever.
+      server.closeIdleConnections?.()
+      await new Promise(resolve => {
+        server.close(resolve)
+        server.closeAllConnections?.()
+      })
       listening = false
     },
   }
@@ -333,9 +363,23 @@ function send(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
+const BODY_LIMIT = 64 * 1024
+
 async function readJson(req) {
   const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > BODY_LIMIT) {
+      // Stop before buffering more: the peer chooses how much it sends.
+      throw Object.assign(new Error('payload_too_large'), { status: 413, code: 'payload_too_large' })
+    }
+    chunks.push(chunk)
+  }
   if (chunks.length === 0) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    throw Object.assign(new Error('invalid_json'), { status: 400, code: 'invalid_json' })
+  }
 }

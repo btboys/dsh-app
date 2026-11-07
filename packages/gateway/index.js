@@ -1,16 +1,13 @@
 import { Buffer } from 'node:buffer'
-import { generateKeyPairSync } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { createGateway } from './gateway.js'
 import { DeviceStore } from './store.js'
+import { loadOrCreateCertificate } from './tls.js'
 
-const exec = promisify(execFile)
 const HOME = join(homedir(), '.dsh-app')
 const schema = hostRequire()('@deepseek-ai/schemastery')
 const z = schema.z ?? schema
@@ -20,13 +17,16 @@ export const inject = ['webApp', 'webServer', 'workspaceRegistry']
 export const Config = z.object({
   port: z.number().default(3443),
   remoteOrigins: z.array(z.string()).default([]),
+  tls: z.boolean().default(true),
 })
 
 export async function apply(ctx, config = {}) {
   const store = new DeviceStore(join(HOME, 'devices'))
   await store.load()
+  const tls = config.tls === false ? undefined : await loadOrCreateCertificate(join(HOME, 'tls'))
   const gateway = createGateway({
     store,
+    tls,
     upstreamOrigin: ctx.webApp.getAdvertisedUrl(),
     port: config.port ?? 3443,
     remoteOrigins: config.remoteOrigins ?? [],
@@ -58,7 +58,7 @@ export async function apply(ctx, config = {}) {
     ctx.webServer.register({ kind: 'exact', path: '/dsh-app/desktop/pairing', handler: desktop(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' })
       const body = await readBody(req)
-      json(res, 200, store.issuePairing({ origin: body.origin }))
+      json(res, 200, gateway.pairing(body.origin))
     }) }),
     ctx.webServer.register({ kind: 'exact', path: '/dsh-app/desktop/revoke', handler: desktop(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' })
@@ -118,24 +118,6 @@ async function readBody(req) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
 }
 
-async function loadOrCreateCertificate(dir) {
-  await mkdir(dir, { recursive: true })
-  const keyPath = join(dir, 'key.pem')
-  const certPath = join(dir, 'cert.pem')
-  try {
-    return { key: await readFile(keyPath), cert: await readFile(certPath) }
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
-  const key = privateKey.export({ type: 'pkcs8', format: 'pem' })
-  await writeFile(keyPath, key, { mode: 0o600 })
-  const configPath = join(dir, 'openssl.cnf')
-  await writeFile(configPath, opensslConfig())
-  await exec('openssl', ['req', '-new', '-x509', '-key', keyPath, '-out', certPath, '-days', '825', '-config', configPath])
-  return { key, cert: await readFile(certPath) }
-}
-
 function hostRequire() {
   const local = createRequire(import.meta.url)
   try {
@@ -145,18 +127,4 @@ function hostRequire() {
     if (!process.argv[1]) throw new Error('找不到 DSH 安装目录')
     return createRequire(realpathSync(process.argv[1]))
   }
-}
-
-function opensslConfig() {
-  return `
-[req]
-distinguished_name = dn
-x509_extensions = ext
-prompt = no
-[dn]
-CN = dsh-app
-[ext]
-subjectAltName = DNS:localhost,IP:127.0.0.1
-basicConstraints = CA:true
-`.trim()
 }

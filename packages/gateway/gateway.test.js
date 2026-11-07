@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -147,4 +147,68 @@ test('answer emits exactly one redacted terminal event', async () => {
   assert.deepEqual(events[1], { kind: 'pending-settled', id: record.id, state: 'answered' })
   assert.equal(events.length, 2)
   await gateway.stop()
+})
+
+test('a request body beyond the limit is refused instead of buffered', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gateway = createGateway({ store: new DeviceStore(dir), upstreamOrigin: 'http://localhost', port: 0 })
+  const status = await gateway.start()
+  t.after(() => gateway.stop())
+  const origin = `http://127.0.0.1:${status.port}`
+  const response = await fetch(`${origin}/dsh-app/pair`, {
+    method: 'POST',
+    body: JSON.stringify({ code: 'x', padding: 'a'.repeat(200 * 1024) }),
+  })
+  assert.equal(response.status, 413)
+  assert.deepEqual(await response.json(), { error: 'payload_too_large' })
+})
+
+test('malformed JSON is a client error, not a crash', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gateway = createGateway({ store: new DeviceStore(dir), upstreamOrigin: 'http://localhost', port: 0 })
+  const status = await gateway.start()
+  t.after(() => gateway.stop())
+  const origin = `http://127.0.0.1:${status.port}`
+  const response = await fetch(`${origin}/dsh-app/pair`, { method: 'POST', body: '{not json' })
+  assert.equal(response.status, 400)
+  assert.deepEqual(await response.json(), { error: 'invalid_json' })
+})
+
+async function pairedGateway(t, dir, workspaces) {
+  const store = new DeviceStore(dir)
+  const gateway = createGateway({ store, upstreamOrigin: 'http://localhost', port: 0, workspaces })
+  const status = await gateway.start()
+  t.after(() => gateway.stop())
+  const origin = `http://127.0.0.1:${status.port}`
+  const { code } = store.issuePairing({ origin })
+  const device = await store.pair({ code, origin })
+  return { origin, token: device.token }
+}
+
+test('a symlink inside the workspace cannot list or preview files outside it', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-app-root-'))
+  const outside = await mkdtemp(join(tmpdir(), 'dsh-app-outside-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  await writeFile(join(outside, 'secret.txt'), 'secret')
+  await symlink(join(outside, 'secret.txt'), join(root, 'leak.txt'))
+  const workspaces = () => [{
+    id: 'ws',
+    title: 'ws',
+    path: root,
+    list: async target => ({ path: target, entries: [] }),
+    read: target => readFile(target),
+  }]
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { origin, token } = await pairedGateway(t, dir, workspaces)
+  const headers = { authorization: `Bearer ${token}` }
+  const listed = await fetch(`${origin}/dsh-app/files?workspace=ws&path=.`, { headers })
+  assert.equal(listed.status, 200)
+  await listed.text()
+  const preview = await fetch(`${origin}/dsh-app/files/preview?workspace=ws&path=leak.txt`, { headers })
+  assert.equal(preview.status, 403)
+  assert.deepEqual(await preview.json(), { error: 'outside_workspace' })
 })
