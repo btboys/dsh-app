@@ -1,5 +1,9 @@
 package app.dsh.mobile
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import java.net.URI
 import java.util.Locale
@@ -19,6 +23,12 @@ class ApprovalsActivity : AppCompatActivity() {
     private lateinit var retry: Button
     private lateinit var locks: ApprovalLocks
     private lateinit var lockPreferences: android.content.SharedPreferences
+    private var computer: Computer? = null
+    private val pendingChanged = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            computer?.let { loadApprovals(it) }
+        }
+    }
 
     private fun lockPrefix(computer: Computer): String {
         val uri = URI(computer.origin)
@@ -35,6 +45,7 @@ class ApprovalsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_approvals)
         findViewById<View>(R.id.backButton).setOnClickListener { finish() }
         val computer = ComputerStore(this).active() ?: return finish()
+        this.computer = computer
         val prefs = getSharedPreferences("approval_locks", MODE_PRIVATE)
         lockPreferences = prefs
         locks = ApprovalLocks(object : ApprovalLocks.Storage {
@@ -57,6 +68,22 @@ class ApprovalsActivity : AppCompatActivity() {
         parent.addView(status, index)
         parent.addView(retry, index + 1)
         loadApprovals(computer)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerReceiver(pendingChanged, IntentFilter("app.dsh.mobile.PENDING_CHANGED"), Context.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onStop() {
+        unregisterReceiver(pendingChanged)
+        super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Returning from the session page should show current pending items, not a stale list.
+        computer?.let { loadApprovals(it) }
     }
 
     private fun loadApprovals(computer: Computer) {

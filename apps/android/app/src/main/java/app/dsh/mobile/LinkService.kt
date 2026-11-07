@@ -14,6 +14,7 @@ import kotlin.concurrent.thread
 class LinkService : Service() {
     private companion object {
         const val PENDING_ID = 8
+        const val ACTION_PENDING_CHANGED = "app.dsh.mobile.PENDING_CHANGED"
     }
 
     @Volatile private var running = false
@@ -86,6 +87,10 @@ class LinkService : Service() {
         if (clearSettled(parsed)) getSystemService(NotificationManager::class.java).cancel(PENDING_ID)
         trackAlert(parsed)
         PendingEvents.alert(parsed)?.let { notify(it.title, it.text) }
+        // An open approvals screen should not keep showing items that just changed.
+        if (PendingEvents.alert(parsed) != null || PendingEvents.settlement(parsed) != null) {
+            sendBroadcast(Intent(ACTION_PENDING_CHANGED).setPackage(packageName))
+        }
     }
 
     private fun notify(title: String, text: String) {
