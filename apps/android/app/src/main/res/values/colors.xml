@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_background">#10211C</color>
+    <!-- Phosphor console palette: near-black green glass, mint light, amber warnings. -->
+    <color name="ink">#080E0C</color>
+    <color name="ink_deep">#050908</color>
+    <color name="surface">#101B17</color>
+    <color name="surface_high">#15241E</color>
+    <color name="stroke">#21342C</color>
+    <color name="stroke_strong">#2C4A3D</color>
+    <color name="text_primary">#E8F3EC</color>
+    <color name="text_muted">#8CA79A</color>
+    <color name="text_faint">#5B7468</color>
+    <color name="accent">#63E6A4</color>
+    <color name="accent_press">#49C98A</color>
+    <color name="accent_dim">#1F6F5B</color>
+    <color name="accent_ghost">#1F63E6A4</color>
+    <color name="on_accent">#04140D</color>
+    <color name="warn">#F2B65E</color>
+    <color name="danger">#EF6C5C</color>
+    <color name="launcher_background">#08100D</color>
 </resources>
