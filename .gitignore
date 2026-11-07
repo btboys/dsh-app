@@ -12,3 +12,4 @@ apps/android/local.properties
 .worktrees/
 apps/android/release.keystore
 apps/android/keystore.properties
+dist/
