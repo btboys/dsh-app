@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/dsh-app',
+  id: 'dsh-app-mobile',
   factory(require) {
     const React = require('react')
     const h = React.createElement
