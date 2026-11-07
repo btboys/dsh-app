@@ -27,3 +27,10 @@ On the same LAN, search for the computer, paste the pairing code **and the finge
 A paired phone keeps the fingerprint. If the computer's identity is replaced, delete `~/.dsh-app/tls` on the computer and pair again; the phone will refuse the new certificate until you confirm it.
 
 Notifications need the connection service to stay running. They stop if Android kills the app.
+
+## Troubleshooting
+
+If the phone cannot find the computer on the same LAN:
+
+- Confirm that the phone and the computer are on the same network, and that the gateway opened by the plugin is running; the LAN address is listed in **设置 → 移动访问**.
+- If pairing still fails, check whether the pairing code has expired (a code is valid for five minutes) and generate a new one.

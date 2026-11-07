@@ -10,3 +10,5 @@ apps/android/local.properties
 *.key
 
 .worktrees/
+apps/android/release.keystore
+apps/android/keystore.properties

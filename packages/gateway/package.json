@@ -1,9 +1,28 @@
 {
-  "name": "@local/dsh-app",
+  "name": "dsh-app-mobile",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Pair a phone with this computer's DeepSeek Harness and keep using the same sessions.",
+  "description": "Pair an Android phone with this computer's DeepSeek Harness and keep using the same sessions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/btboys/dsh-app.git",
+    "directory": "packages/gateway"
+  },
+  "homepage": "https://github.com/btboys/dsh-app#readme",
+  "bugs": "https://github.com/btboys/dsh-app/issues",
+  "keywords": [
+    "dsh",
+    "plugin",
+    "mobile",
+    "android",
+    "remote",
+    "deepseek-harness"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1",
+    "node": ">=20"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

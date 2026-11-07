@@ -1,6 +1,6 @@
 - insert:
     - id: dsh-app
-      name: '@local/dsh-app'
+      name: 'dsh-app-mobile'
       config:
         port: 3443
         remoteOrigins: []
