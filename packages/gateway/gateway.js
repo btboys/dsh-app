@@ -5,14 +5,16 @@ import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { diagnose } from './diagnostics.js'
 import { previewFile, safeChild } from './files.js'
+import { mobileScript, mobileStyle } from './layout.js'
 import { certificateSha256, normalizeOrigin, parseBearer } from './protocol.js'
 
 const TEXT_LIMIT = 64 * 1024
 const IMAGE_LIMIT = 2 * 1024 * 1024
 
-export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrigins = [], workspaces = () => [] }) {
+export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrigins = [], workspaces = () => [], pendingTimeoutMs = 60_000 }) {
   const pending = new Map()
   const listeners = new Set()
+  const eventStreams = new Set()
   let configuredOrigins = [...remoteOrigins]
   let server
   let beacon
@@ -102,16 +104,14 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       const body = await readJson(req)
       const item = pending.get(body.id)
       if (!item || item.kind !== 'approval') return send(res, 404, { error: 'not_found' })
-      item.settle(body.outcome)
-      pending.delete(body.id)
+      if (!item.settle(body.outcome)) return send(res, 404, { error: 'not_found' })
       return send(res, 200, { ok: true })
     }
     if (req.method === 'POST' && url.pathname === '/dsh-app/questions/answer') {
       const body = await readJson(req)
       const item = pending.get(body.id)
       if (!item || item.kind !== 'question') return send(res, 404, { error: 'not_found' })
-      item.settle(body.answer)
-      pending.delete(body.id)
+      if (!item.settle(body.answer)) return send(res, 404, { error: 'not_found' })
       return send(res, 200, { ok: true })
     }
     if (req.method === 'GET' && url.pathname === '/dsh-app/workspaces') {
@@ -151,15 +151,46 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   }
 
   function publish(item) {
-    if (listeners.size === 0) return Promise.reject(Object.assign(new Error('no_phone'), { reason: 'no_phone' }))
+    if (listeners.size === 0) return Promise.reject(phoneError('no_phone'))
     const id = randomBytes(8).toString('hex')
-    const record = { ...item, id }
+    const deadline = performance.now() + pendingTimeoutMs
+    let resolveResult, rejectResult
+    const result = new Promise((resolve, reject) => { resolveResult = resolve; rejectResult = reject })
+    let timer
+    const record = {
+      ...item, id,
+      settle(value) {
+        if (performance.now() >= deadline) {
+          finish('phone_timeout')
+          return false
+        }
+        return finish(undefined, value)
+      },
+      reject(error) { return finish(error.reason ?? 'no_phone') },
+    }
+    function finish(reason, value) {
+      if (pending.get(id) !== record) return false
+      pending.delete(id)
+      clearTimeout(timer)
+      const event = { kind: 'pending-settled', id, state: reason ?? 'answered' }
+      for (const listener of [...listeners]) {
+        try { listener(event) } catch { drop(listener) }
+      }
+      if (reason) rejectResult(phoneError(reason))
+      else resolveResult(value)
+      return true
+    }
     pending.set(id, record)
-    for (const listener of listeners) listener(record)
-    return new Promise((resolve, reject) => {
-      record.settle = resolve
-      record.reject = reject
-    })
+    timer = setTimeout(() => finish('phone_timeout'), pendingTimeoutMs)
+    for (const listener of [...listeners]) {
+      if (!pending.has(id)) break
+      try { listener(record) } catch { drop(listener) }
+    }
+    return result
+  }
+
+  function phoneError(reason) {
+    return Object.assign(new Error(reason), { reason })
   }
 
   function notify(item) {
@@ -175,8 +206,9 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     })
     const listener = record => res.write(`data: ${JSON.stringify(publicEvent(record))}\n\n`)
     listeners.add(listener)
+    eventStreams.add(res)
     for (const record of pending.values()) listener(record)
-    req.on('close', () => drop(listener))
+    req.on('close', () => { eventStreams.delete(res); drop(listener) })
   }
 
   function drop(listener) {
@@ -196,7 +228,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     },
     events(listener) {
       listeners.add(listener)
-      return () => listeners.delete(listener)
+      return () => drop(listener)
     },
     async start() {
       server = tls ? createHttpsServer(tls, handler) : createHttpServer(handler)
@@ -224,6 +256,10 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       return status()
     },
     async stop() {
+      for (const record of [...pending.values()]) record.reject(phoneError('no_phone'))
+      for (const stream of eventStreams) stream.end()
+      eventStreams.clear()
+      listeners.clear()
       if (beacon) beacon.close()
       if (!server) return
       await new Promise(resolve => server.close(resolve))

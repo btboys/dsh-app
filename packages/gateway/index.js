@@ -91,7 +91,7 @@ async function claimOrDelegate(gateway, next, item) {
   try {
     return await gateway.publish(item)
   } catch (error) {
-    if (error.reason === 'no_phone') return next()
+    if (error.reason === 'no_phone' || error.reason === 'phone_timeout') return next()
     throw error
   }
 }
