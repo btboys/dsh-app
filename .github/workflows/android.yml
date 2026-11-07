@@ -24,7 +24,7 @@ jobs:
           echo "ANDROID_SDK_ROOT=${sdk}" >> "${GITHUB_ENV}"
           yes | "${sdk}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk}" --licenses >/dev/null
           "${sdk}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk}" "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
+      - name: Run unit tests and build debug APK
         working-directory: apps/android
         run: |
           set -o pipefail
@@ -32,7 +32,7 @@ jobs:
           export ANDROID_HOME="${sdk}"
           export ANDROID_SDK_ROOT="${sdk}"
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee "${RUNNER_TEMP}/gradle.log"
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee "${RUNNER_TEMP}/gradle.log"
       - name: Publish build error
         if: failure()
         run: |
