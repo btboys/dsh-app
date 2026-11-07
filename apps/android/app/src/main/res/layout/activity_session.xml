@@ -49,6 +49,15 @@
         android:layout_height="1dp"
         android:background="@drawable/divider" />
 
+    <TextView
+        android:id="@+id/sessionStatus"
+        style="@style/Dsh.Mono"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:textColor="@color/warn"
+        android:visibility="gone" />
+
     <WebView
         android:id="@+id/sessionWeb"
         android:layout_width="match_parent"

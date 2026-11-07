@@ -25,6 +25,12 @@
     <string name="status_idle">等待输入</string>
     <string name="status_ready">就绪 · 长按电脑可移除</string>
     <string name="status_paired">已配对</string>
+    <string name="label_pin">证书指纹</string>
+    <string name="hint_pin">粘贴电脑端显示的指纹</string>
+    <string name="status_pin_required">需要先核对电脑端显示的证书指纹</string>
+    <string name="status_pin_invalid">证书指纹格式不正确</string>
+    <string name="session_offline">无法连接电脑，请检查网络和配对状态</string>
+    <string name="status_plaintext">未加密连接 · 请改用在电脑端开启的 HTTPS 地址</string>
     <string name="status_found">已找到电脑</string>
     <string name="status_pair_failed">配对失败</string>
     <string name="status_searching">正在搜索局域网…</string>

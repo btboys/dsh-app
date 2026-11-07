@@ -12,7 +12,27 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 class LinkService : Service() {
+    private companion object {
+        const val PENDING_ID = 8
+    }
+
     @Volatile private var running = false
+    private val outstanding = mutableSetOf<String>()
+
+    @Synchronized
+    private fun trackAlert(event: GatewayEvent) {
+        PendingEvents.alert(event)?.takeIf { it.itemId.isNotEmpty() }?.let { outstanding.add(it.itemId) }
+    }
+
+    @Synchronized
+    private fun clearSettled(event: GatewayEvent): Boolean {
+        val settled = PendingEvents.settlement(event) ?: return false
+        outstanding.remove(settled.itemId)
+        if (settled.state == PendingEvents.STATE_PHONE_TIMEOUT) {
+            notify("请求已超时", "这条请求已回到电脑端处理，手机上不再显示。")
+        }
+        return outstanding.isEmpty()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,21 +53,44 @@ class LinkService : Service() {
 
     private fun listen() {
         val computer = ComputerStore(this).active() ?: return stopSelf()
-        GatewayClient(computer).eventReader().use { reader ->
-            while (running) {
-                val line = reader.readLine() ?: break
-                if (!line.startsWith("data: ")) continue
-                val event = JSONObject(line.removePrefix("data: "))
-                if (event.optString("kind") == "approval" || event.optString("status") == "idle") {
-                    notify(event.optString("kind", "status"), event.optString("reason", "会话状态已更新"))
+        var delay = 2_000L
+        while (running) {
+            try {
+                GatewayClient(computer).eventReader().use { reader ->
+                    while (running) {
+                        val line = reader.readLine() ?: break
+                        if (line.startsWith("data: ")) {
+                            val event = JSONObject(line.removePrefix("data: "))
+                            handle(event)
+                        }
+                    }
                 }
+                delay = 2_000L
+            } catch (error: Throwable) {
+                // The stream can end while Android keeps the process alive; retry with backoff.
             }
+            if (!running) return
+            Thread.sleep(delay)
+            delay = (delay * 2).coerceAtMost(60_000L)
         }
+    }
+
+    private fun handle(event: JSONObject) {
+        val parsed = GatewayEvent(
+            kind = event.optString("kind"),
+            itemId = event.optString("id"),
+            status = event.optString("status").ifEmpty { event.optString("state") },
+            reason = event.optString("reason"),
+            toolName = event.optString("toolName"),
+        )
+        if (clearSettled(parsed)) getSystemService(NotificationManager::class.java).cancel(PENDING_ID)
+        trackAlert(parsed)
+        PendingEvents.alert(parsed)?.let { notify(it.title, it.text) }
     }
 
     private fun notify(title: String, text: String) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(8, note(title, text))
+        manager.notify(PENDING_ID, note(title, text))
     }
 
     private fun note(title: String, text: String): Notification {

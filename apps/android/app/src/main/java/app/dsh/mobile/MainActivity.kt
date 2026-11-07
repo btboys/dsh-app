@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyBlock: View
     private lateinit var originInput: EditText
     private lateinit var codeInput: EditText
+    private lateinit var pinInput: EditText
     private lateinit var statusText: TextView
     private lateinit var statusDot: View
     private lateinit var scopeChip: TextView
@@ -37,13 +38,14 @@ class MainActivity : AppCompatActivity() {
         emptyBlock = findViewById(R.id.emptyBlock)
         originInput = findViewById(R.id.originInput)
         codeInput = findViewById(R.id.codeInput)
+        pinInput = findViewById(R.id.pinInput)
         statusText = findViewById(R.id.statusText)
         statusDot = findViewById(R.id.statusDot)
         scopeChip = findViewById(R.id.scopeChip)
         pairedCount = findViewById(R.id.pairedCount)
 
         findViewById<View>(R.id.pairButton).setOnClickListener {
-            pair(originInput.text.toString(), codeInput.text.toString())
+            pair(originInput.text.toString(), codeInput.text.toString(), pinInput.text.toString())
         }
         findViewById<View>(R.id.discoverButton).setOnClickListener { discover() }
     }
@@ -56,7 +58,14 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         val computers = store.list()
         pairedCount.text = String.format("%02d", computers.size)
-        scopeChip.setText(if (computers.any { it.origin.startsWith("https://") }) R.string.status_remote else R.string.status_local)
+        val plaintext = computers.any { it.origin.startsWith("http://") }
+        scopeChip.setText(
+            when {
+                plaintext -> R.string.status_plaintext
+                computers.any { it.origin.startsWith("https://") } -> R.string.status_remote
+                else -> R.string.status_local
+            }
+        )
         deviceList.removeAllViews()
         emptyBlock.visibility = if (computers.isEmpty()) View.VISIBLE else View.GONE
         val inflater = LayoutInflater.from(this)
@@ -111,27 +120,48 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun pair(origin: String, code: String) {
+    private fun pair(origin: String, code: String, pin: String) {
         if (origin.isBlank() || code.isBlank()) {
             report(getString(R.string.status_pair_failed), State.FAILED)
             return
         }
+        val secure = origin.trim().startsWith("https://")
+        val fingerprint = pin.filterNot { it.isWhitespace() }
+        if (secure) {
+            // The phone only learns which computer it is talking to by comparing this
+            // fingerprint with the one the computer shows, so pairing cannot start without it.
+            if (fingerprint.isEmpty()) {
+                report(getString(R.string.status_pin_required), State.FAILED)
+                return
+            }
+            if (!CertificatePin.isValidFormat(fingerprint)) {
+                report(getString(R.string.status_pin_invalid), State.FAILED)
+                return
+            }
+        }
         report(getString(R.string.status_pairing), State.BUSY)
         thread {
             try {
-                val client = GatewayClient(Computer("new", "电脑", origin.trim(), "", null, 0))
+                val client = GatewayClient(Computer("new", "电脑", origin.trim(), "", fingerprint.ifEmpty { null }, 0))
                 val paired = client.pair(code.trim(), Build.MODEL)
                 store.save(paired)
                 store.activate(paired.id)
                 runOnUiThread {
                     render()
                     codeInput.setText("")
+                    pinInput.setText("")
                 }
                 report(getString(R.string.status_paired), State.DONE)
             } catch (error: Throwable) {
-                report(error.message ?: getString(R.string.status_pair_failed), State.FAILED)
+                report(pairFailureMessage(error), State.FAILED)
             }
         }
+    }
+
+    private fun pairFailureMessage(error: Throwable): String = when ((error as? UntrustedComputerException)?.message) {
+        "certificate_pin_required" -> getString(R.string.status_pin_required)
+        "certificate_pin_invalid" -> getString(R.string.status_pin_invalid)
+        else -> error.message ?: getString(R.string.status_pair_failed)
     }
 
     private fun discover() {

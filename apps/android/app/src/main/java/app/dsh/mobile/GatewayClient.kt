@@ -5,13 +5,10 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
+
+/** A computer whose certificate was not confirmed, so the request was not sent. */
+class UntrustedComputerException(reason: String) : IllegalStateException(reason)
 
 class GatewayClient(private val computer: Computer) {
     fun pair(code: String, name: String): Computer {
@@ -98,8 +95,13 @@ class GatewayClient(private val computer: Computer) {
 
     private fun open(path: String, method: String, body: JSONObject?, token: String?): HttpURLConnection {
         val connection = URL(computer.origin + path).openConnection() as HttpURLConnection
-        if (connection is HttpsURLConnection && computer.certificateSha256 != null) {
-            connection.sslSocketFactory = pinnedFactory(computer.certificateSha256)
+        if (connection is HttpsURLConnection) {
+            // Without a confirmed pin this computer is not identified, so refuse the connection
+            // rather than trusting whatever certificate the network presents.
+            val pin = computer.certificateSha256
+            if (pin == null) throw UntrustedComputerException("certificate_pin_required")
+            if (!CertificatePin.isValidFormat(pin)) throw UntrustedComputerException("certificate_pin_invalid")
+            connection.sslSocketFactory = CertificatePin.socketFactory(pin)
             connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { hostname, _ -> hostname == java.net.URI(computer.origin).host }
         }
         connection.requestMethod = method
@@ -124,17 +126,6 @@ class GatewayClient(private val computer: Computer) {
         return JSONObject(text)
     }
 
-    private fun pinnedFactory(expected: String) = SSLContext.getInstance("TLS").apply {
-        init(null, arrayOf<TrustManager>(object : X509TrustManager {
-            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
-            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-                val actual = MessageDigest.getInstance("SHA-256").digest(chain.first().encoded)
-                val encoded = java.util.Base64.getEncoder().encodeToString(actual)
-                if (encoded != expected) error("certificate_mismatch")
-            }
-        }), SecureRandom())
-    }.socketFactory
 
     private fun encode(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
 }

@@ -208,6 +208,25 @@
                     android:imeOptions="actionDone"
                     android:inputType="textVisiblePassword" />
 
+                <TextView
+                    style="@style/Dsh.Mono"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/label_pin"
+                    android:textColor="@color/text_faint"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/pinInput"
+                    style="@style/Dsh.Input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="@string/hint_pin"
+                    android:imeOptions="actionDone"
+                    android:inputType="textVisiblePassword" />
+
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/pairButton"
                     style="@style/Dsh.Button.Primary"

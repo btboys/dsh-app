@@ -6,7 +6,9 @@ The phone is a remote control. Sessions, tools, and workspaces stay on the compu
 
 ## Computer
 
-Install the plugin from this checkout, then open **设置 → 移动访问**. Generate a pairing code for a LAN address, or for a remote HTTPS address you already expose with Tailscale or your own reverse proxy. This app does not install a tunnel.
+Install the plugin from this checkout, then open **设置 → 移动访问**. The gateway serves HTTPS by default and keeps one identity in `~/.dsh-app/tls`; the settings page shows the certificate fingerprint next to the pairing code. Generate a pairing code for a LAN address, or for a remote HTTPS address you already expose with Tailscale or your own reverse proxy. This app does not install a tunnel.
+
+If your own reverse proxy terminates TLS in front of the gateway, set `tls: false` so the gateway speaks HTTP only on the loopback interface; the phone still only reaches it through the proxy's HTTPS origin.
 
 Unpaired requests are not forwarded to DSH. A device token is sent only to the origin it was paired with. Revoke a phone from the same settings page.
 
@@ -20,6 +22,8 @@ gradle wrapper
 ./gradlew :app:assembleDebug
 ```
 
-On the same LAN, search for the computer, paste the pairing code, then open the session. Leaving the LAN requires the remote origin you configured on the computer.
+On the same LAN, search for the computer, paste the pairing code **and the fingerprint shown on the computer**, then open the session. The phone refuses an HTTPS computer whose certificate does not match that fingerprint, so compare the two before pairing; a mismatch means the connection is being intercepted. Leaving the LAN requires the remote origin you configured on the computer.
+
+A paired phone keeps the fingerprint. If the computer's identity is replaced, delete `~/.dsh-app/tls` on the computer and pair again; the phone will refuse the new certificate until you confirm it.
 
 Notifications need the connection service to stay running. They stop if Android kills the app.
