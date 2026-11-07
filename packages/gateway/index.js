@@ -63,7 +63,10 @@ export async function apply(ctx, config = {}) {
     ctx.webServer.register({ kind: 'exact', path: '/dsh-app/desktop/revoke', handler: desktop(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' })
       const body = await readBody(req)
-      json(res, 200, { revoked: await store.revoke(body.id) })
+      const revoked = await store.revoke(body.id)
+      // A revoked phone must lose the live stream it is already holding, not just new requests.
+      if (revoked) gateway.disconnectDevice(body.id)
+      json(res, 200, { revoked })
     }) }),
   ]
   ctx.on('approval/request', async (request, next) => claimOrDelegate(gateway, next, {

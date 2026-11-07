@@ -212,3 +212,33 @@ test('a symlink inside the workspace cannot list or preview files outside it', a
   assert.equal(preview.status, 403)
   assert.deepEqual(await preview.json(), { error: 'outside_workspace' })
 })
+
+test('revoking a device closes the stream it already holds', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new DeviceStore(dir)
+  const gateway = createGateway({ store, upstreamOrigin: 'http://localhost', port: 0 })
+  const status = await gateway.start()
+  t.after(() => gateway.stop())
+  const origin = `http://127.0.0.1:${status.port}`
+  const { code } = store.issuePairing({ origin })
+  const device = await store.pair({ code, origin })
+  const controller = new AbortController()
+  const stream = await fetch(`${origin}/dsh-app/events`, {
+    headers: { authorization: `Bearer ${device.token}` },
+    signal: controller.signal,
+  })
+  assert.equal(stream.status, 200)
+  const reader = stream.body.getReader()
+  assert.equal(gateway.disconnectDevice(device.id), 1)
+  // The server ended the stream, so the reader reports the body as finished.
+  let done = false
+  while (!done) {
+    const chunk = await reader.read()
+    done = chunk.done
+  }
+  await store.revoke(device.id)
+  controller.abort()
+  const denied = await fetch(`${origin}/dsh-app/approvals`, { headers: { authorization: `Bearer ${device.token}` } })
+  assert.equal(denied.status, 401)
+})

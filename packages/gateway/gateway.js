@@ -14,7 +14,7 @@ const IMAGE_LIMIT = 2 * 1024 * 1024
 export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrigins = [], workspaces = () => [], pendingTimeoutMs = 60_000 }) {
   const pending = new Map()
   const listeners = new Set()
-  const eventStreams = new Set()
+  const eventStreams = new Map()
   let configuredOrigins = [...remoteOrigins]
   let server
   let beacon
@@ -113,7 +113,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       res.end()
       return
     }
-    if (req.method === 'GET' && url.pathname === '/dsh-app/events') return attachEvents(req, res)
+    if (req.method === 'GET' && url.pathname === '/dsh-app/events') return attachEvents(req, res, decision.deviceId)
     if (req.method === 'GET' && url.pathname === '/dsh-app/approvals') {
       return send(res, 200, { pending: [...pending.values()] })
     }
@@ -222,15 +222,17 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     for (const listener of listeners) listener(record)
   }
 
-  function attachEvents(req, res) {
+  function attachEvents(req, res, deviceId) {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-store',
       connection: 'keep-alive',
     })
+    // Without flushing, a phone that is waiting for its first event never sees headers.
+    res.flushHeaders?.()
     const listener = record => res.write(`data: ${JSON.stringify(publicEvent(record))}\n\n`)
     listeners.add(listener)
-    eventStreams.add(res)
+    eventStreams.set(res, deviceId)
     for (const record of pending.values()) listener(record)
     req.on('close', () => { eventStreams.delete(res); drop(listener) })
   }
@@ -242,10 +244,21 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     pending.clear()
   }
 
+  function disconnectDevice(deviceId) {
+    let closed = 0
+    for (const [stream, owner] of eventStreams) {
+      if (owner !== deviceId) continue
+      stream.end()
+      closed += 1
+    }
+    return closed
+  }
+
   return {
     status,
     pairing,
     publish,
+    disconnectDevice,
     notify,
     listenerCount: () => listeners.size,
     setRemoteOrigins(origins) {
@@ -282,7 +295,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     },
     async stop() {
       for (const record of [...pending.values()]) record.reject(phoneError('no_phone'))
-      for (const stream of eventStreams) stream.end()
+      for (const stream of eventStreams.keys()) stream.end()
       eventStreams.clear()
       listeners.clear()
       if (beacon) beacon.close()
