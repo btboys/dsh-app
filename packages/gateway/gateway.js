@@ -4,19 +4,23 @@ import { createServer as createHttpsServer, request as httpsRequest } from 'node
 import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { diagnose } from './diagnostics.js'
-import { previewFile, safeChild } from './files.js'
+import { previewFile, safeRealChild } from './files.js'
+import { mobileScript, mobileStyle } from './layout.js'
 import { certificateSha256, normalizeOrigin, parseBearer } from './protocol.js'
 
 const TEXT_LIMIT = 64 * 1024
 const IMAGE_LIMIT = 2 * 1024 * 1024
 
-export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrigins = [], workspaces = () => [] }) {
+export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrigins = [], workspaces = () => [], pendingTimeoutMs = 60_000 }) {
   const pending = new Map()
   const listeners = new Set()
+  const eventStreams = new Map()
   let configuredOrigins = [...remoteOrigins]
   let server
   let beacon
   let listening = false
+  let upstream = { reachable: false, checkedAt: 0 }
+  let probeTimer
 
   function origins() {
     const scheme = tls ? 'https' : 'http'
@@ -28,16 +32,41 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     return server?.address()?.port ?? port
   }
 
+  /**
+   * Asks the DSH web app whether it answers; a phone should not be told the computer is
+   * healthy when it is not. Uses a one-shot request so probing never keeps a socket open.
+   */
+  function probeUpstream() {
+    return new Promise(resolve => {
+      const target = new URL(upstreamOrigin)
+      const send = target.protocol === 'https:' ? httpsRequest : httpRequest
+      const done = reachable => {
+        upstream = { reachable, checkedAt: Date.now() }
+        resolve(reachable)
+      }
+      const request = send(target, { method: 'GET', timeout: 1500, agent: false }, response => {
+        response.resume()
+        response.on('end', () => done(true))
+        response.on('error', () => done(false))
+      })
+      request.on('timeout', () => { request.destroy(); done(false) })
+      request.on('error', () => done(false))
+      request.end()
+    })
+  }
+
   function status() {
     return {
       listening,
       port: boundPort(),
       upstreamOrigin,
+      upstreamCheckedAt: upstream.checkedAt,
       origins: origins(),
+      certificateSha256: tls ? certificateSha256(tls.cert) : undefined,
       ...store.publicStatus(),
       checks: diagnose({
         upstreamOrigin,
-        upstreamReachable: true,
+        upstreamReachable: upstream.reachable,
         listening,
         origins: origins(),
         pairedDevices: store.publicStatus().devices.length,
@@ -46,6 +75,22 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   }
 
   async function handler(req, res) {
+    try {
+      await route(req, res)
+    } catch (error) {
+      if (res.headersSent) {
+        res.destroy()
+        return
+      }
+      if (error.status) {
+        send(res, error.status, { error: error.code ?? 'request_failed' })
+        return
+      }
+      send(res, 500, { error: 'internal_error' })
+    }
+  }
+
+  async function route(req, res) {
     const url = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`)
     if (req.method === 'GET' && url.pathname === '/dsh-app/discover') {
       return send(res, 200, { name: 'dsh-app', origins: origins(), port: boundPort() })
@@ -80,7 +125,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/diagnostics') {
       return send(res, 200, diagnose({
         upstreamOrigin,
-        upstreamReachable: true,
+        upstreamReachable: upstream.reachable,
         listening,
         origins: origins(),
         pairedDevices: store.publicStatus().devices.length,
@@ -94,7 +139,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       res.end()
       return
     }
-    if (req.method === 'GET' && url.pathname === '/dsh-app/events') return attachEvents(req, res)
+    if (req.method === 'GET' && url.pathname === '/dsh-app/events') return attachEvents(req, res, decision.deviceId)
     if (req.method === 'GET' && url.pathname === '/dsh-app/approvals') {
       return send(res, 200, { pending: [...pending.values()] })
     }
@@ -102,16 +147,19 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
       const body = await readJson(req)
       const item = pending.get(body.id)
       if (!item || item.kind !== 'approval') return send(res, 404, { error: 'not_found' })
-      item.settle(body.outcome)
-      pending.delete(body.id)
+      if (!item.settle(body.outcome)) return send(res, 404, { error: 'not_found' })
       return send(res, 200, { ok: true })
     }
     if (req.method === 'POST' && url.pathname === '/dsh-app/questions/answer') {
       const body = await readJson(req)
+      const answer = body.answer
+      // The host settles a question call only as one batch; reject partial answers up front.
+      if (!answer || !Array.isArray(answer.answers) || answer.answers.length === 0) {
+        return send(res, 400, { error: 'invalid_answer' })
+      }
       const item = pending.get(body.id)
       if (!item || item.kind !== 'question') return send(res, 404, { error: 'not_found' })
-      item.settle(body.answer)
-      pending.delete(body.id)
+      if (!item.settle(answer)) return send(res, 404, { error: 'not_found' })
       return send(res, 200, { ok: true })
     }
     if (req.method === 'GET' && url.pathname === '/dsh-app/workspaces') {
@@ -120,7 +168,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/files') {
       const workspace = workspaces().find(item => item.id === url.searchParams.get('workspace'))
       if (!workspace) return send(res, 404, { error: 'workspace_not_found' })
-      const target = safeChild(workspace.path, url.searchParams.get('path') || '.')
+      const target = await safeRealChild(workspace.path, url.searchParams.get('path') || '.')
       if (!target) return send(res, 403, { error: 'outside_workspace' })
       const listing = await workspace.list(target)
       return send(res, 200, listing)
@@ -128,7 +176,7 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     if (req.method === 'GET' && url.pathname === '/dsh-app/files/preview') {
       const workspace = workspaces().find(item => item.id === url.searchParams.get('workspace'))
       if (!workspace) return send(res, 404, { error: 'workspace_not_found' })
-      const target = safeChild(workspace.path, url.searchParams.get('path') || '')
+      const target = await safeRealChild(workspace.path, url.searchParams.get('path') || '')
       if (!target) return send(res, 403, { error: 'outside_workspace' })
       const bytes = await workspace.read(target)
       const preview = previewFile({ path: target, bytes, limit: TEXT_LIMIT })
@@ -151,15 +199,53 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
   }
 
   function publish(item) {
-    if (listeners.size === 0) return Promise.reject(Object.assign(new Error('no_phone'), { reason: 'no_phone' }))
+    if (listeners.size === 0) return Promise.reject(phoneError('no_phone'))
     const id = randomBytes(8).toString('hex')
-    const record = { ...item, id }
+    const deadline = performance.now() + pendingTimeoutMs
+    let resolveResult, rejectResult
+    const result = new Promise((resolve, reject) => { resolveResult = resolve; rejectResult = reject })
+    let timer
+    const record = {
+      ...item, id,
+      settle(value) {
+        if (performance.now() >= deadline) {
+          finish('phone_timeout')
+          return false
+        }
+        return finish(undefined, value)
+      },
+      reject(error) { return finish(error.reason ?? 'no_phone') },
+    }
+    function finish(reason, value) {
+      if (pending.get(id) !== record) return false
+      pending.delete(id)
+      clearTimeout(timer)
+      const event = { kind: 'pending-settled', id, state: reason ?? 'answered' }
+      for (const listener of [...listeners]) {
+        try { listener(event) } catch { drop(listener) }
+      }
+      if (reason) rejectResult(phoneError(reason))
+      else resolveResult(value)
+      return true
+    }
     pending.set(id, record)
-    for (const listener of listeners) listener(record)
-    return new Promise((resolve, reject) => {
-      record.settle = resolve
-      record.reject = reject
-    })
+    timer = setTimeout(() => finish('phone_timeout'), pendingTimeoutMs)
+    for (const listener of [...listeners]) {
+      if (!pending.has(id)) break
+      try { listener(record) } catch { drop(listener) }
+    }
+    return result
+  }
+
+  function phoneError(reason) {
+    return Object.assign(new Error(reason), { reason })
+  }
+
+  function pairing(origin) {
+    return {
+      ...store.issuePairing({ origin }),
+      certificateSha256: tls ? certificateSha256(tls.cert) : undefined,
+    }
   }
 
   function notify(item) {
@@ -167,16 +253,19 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     for (const listener of listeners) listener(record)
   }
 
-  function attachEvents(req, res) {
+  function attachEvents(req, res, deviceId) {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-store',
       connection: 'keep-alive',
     })
+    // Without flushing, a phone that is waiting for its first event never sees headers.
+    res.flushHeaders?.()
     const listener = record => res.write(`data: ${JSON.stringify(publicEvent(record))}\n\n`)
     listeners.add(listener)
+    eventStreams.set(res, deviceId)
     for (const record of pending.values()) listener(record)
-    req.on('close', () => drop(listener))
+    req.on('close', () => { eventStreams.delete(res); drop(listener) })
   }
 
   function drop(listener) {
@@ -186,9 +275,21 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     pending.clear()
   }
 
+  function disconnectDevice(deviceId) {
+    let closed = 0
+    for (const [stream, owner] of eventStreams) {
+      if (owner !== deviceId) continue
+      stream.end()
+      closed += 1
+    }
+    return closed
+  }
+
   return {
     status,
+    pairing,
     publish,
+    disconnectDevice,
     notify,
     listenerCount: () => listeners.size,
     setRemoteOrigins(origins) {
@@ -196,9 +297,10 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     },
     events(listener) {
       listeners.add(listener)
-      return () => listeners.delete(listener)
+      return () => drop(listener)
     },
     async start() {
+      await probeUpstream()
       server = tls ? createHttpsServer(tls, handler) : createHttpServer(handler)
       server.on('upgrade', (req, socket, head) => proxyUpgrade(req, socket, head, store, upstreamOrigin))
       await new Promise((resolve, reject) => {
@@ -221,12 +323,25 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
         beacon?.close()
         beacon = undefined
       }
+      probeTimer = setInterval(() => { probeUpstream().catch(() => {}) }, 15_000)
+      probeTimer.unref?.()
       return status()
     },
     async stop() {
+      if (probeTimer) clearInterval(probeTimer)
+      probeTimer = undefined
+      for (const record of [...pending.values()]) record.reject(phoneError('no_phone'))
+      for (const stream of eventStreams.keys()) stream.end()
+      eventStreams.clear()
+      listeners.clear()
       if (beacon) beacon.close()
       if (!server) return
-      await new Promise(resolve => server.close(resolve))
+      // Keep-alive clients would otherwise hold the listener open forever.
+      server.closeIdleConnections?.()
+      await new Promise(resolve => {
+        server.close(resolve)
+        server.closeAllConnections?.()
+      })
       listening = false
     },
   }
@@ -297,9 +412,23 @@ function send(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
+const BODY_LIMIT = 64 * 1024
+
 async function readJson(req) {
   const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > BODY_LIMIT) {
+      // Stop before buffering more: the peer chooses how much it sends.
+      throw Object.assign(new Error('payload_too_large'), { status: 413, code: 'payload_too_large' })
+    }
+    chunks.push(chunk)
+  }
   if (chunks.length === 0) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    throw Object.assign(new Error('invalid_json'), { status: 400, code: 'invalid_json' })
+  }
 }

@@ -71,7 +71,12 @@ window.__ModuleLoader__.load({
       pairing ? h('div', { style: { display: 'grid', gap: 8 } },
         h('strong', null, pairing.origin),
         h('code', { style: { fontSize: 18, wordBreak: 'break-all' } }, pairing.code),
-        h('p', { style: { margin: 0 } }, '五分钟内在 App 中粘贴一次。配对码不会写入设备记录。')) : null,
+        pairing.certificateSha256 ? h('div', { style: { display: 'grid', gap: 4 } },
+          h('span', { style: { fontSize: 12, opacity: 0.7 } }, '证书指纹（在手机上核对后再配对）'),
+          h('code', { style: { fontSize: 12, wordBreak: 'break-all' } }, pairing.certificateSha256)) : null,
+        h('p', { style: { margin: 0 } }, pairing.certificateSha256
+          ? '五分钟内把配对码和上面的证书指纹一起粘贴到 App。指纹不一致说明连接被拦截，请停止配对。'
+          : '五分钟内在 App 中粘贴一次。配对码不会写入设备记录。')) : null,
       h('h3', { style: { margin: 0, fontSize: 16 } }, '已配对设备'),
       ...(status?.devices ?? []).map(device => h('div', {
         key: device.id,

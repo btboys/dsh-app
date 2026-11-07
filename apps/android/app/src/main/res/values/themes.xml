@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.DshApp" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">#1F6F5B</item>
-        <item name="android:statusBarColor">#10211C</item>
-        <item name="android:navigationBarColor">#10211C</item>
+    <style name="Theme.DshApp" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorSecondary">@color/accent_dim</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOutline">@color/stroke</item>
+        <item name="android:colorBackground">@color/ink</item>
+        <item name="android:windowBackground">@drawable/bg_page</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:navigationBarColor">@color/ink</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_muted</item>
+        <item name="android:textColorHint">@color/text_faint</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
     </style>
 </resources>

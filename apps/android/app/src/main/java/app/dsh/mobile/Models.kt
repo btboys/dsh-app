@@ -14,6 +14,21 @@ data class PendingItem(
     val kind: String,
     val title: String,
     val detail: String,
+    val questions: List<PendingQuestion> = emptyList(),
+)
+
+data class PendingQuestion(
+    val id: String,
+    val question: String,
+    val detail: String = "",
+    val header: String = "",
+    val options: List<QuestionOption> = emptyList(),
+    val multiSelect: Boolean = false,
+)
+
+data class QuestionOption(
+    val label: String,
+    val description: String = "",
 )
 
 data class FileEntry(
