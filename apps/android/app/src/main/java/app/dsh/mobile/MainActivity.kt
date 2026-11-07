@@ -77,7 +77,11 @@ class MainActivity : AppCompatActivity() {
             }
             deviceList.addView(row)
         }
-        if (computers.isEmpty()) report(getString(R.string.status_idle), State.IDLE)
+        if (computers.isEmpty()) {
+            report(getString(R.string.status_idle), State.IDLE)
+        } else {
+            report(getString(R.string.status_ready), State.DONE)
+        }
     }
 
     private fun lastSeenLabel(lastSeen: Long): String {

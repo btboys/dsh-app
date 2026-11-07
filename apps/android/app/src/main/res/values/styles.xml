@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Typographic system: condensed grotesque for names, monospace for machine facts. -->
+    <style name="Dsh" />
 
     <style name="Dsh.Wordmark">
         <item name="android:fontFamily">sans-serif-condensed</item>
@@ -108,10 +109,5 @@
         <item name="android:paddingTop">5dp</item>
         <item name="android:paddingBottom">5dp</item>
         <item name="android:includeFontPadding">false</item>
-    </style>
-
-    <style name="Dsh.Fab.Ghost">
-        <item name="android:background">@drawable/bg_icon_button</item>
-        <item name="android:padding">10dp</item>
     </style>
 </resources>

@@ -33,7 +33,7 @@
                 <FrameLayout
                     android:layout_width="44dp"
                     android:layout_height="44dp"
-                    android:background="@drawable/bg_card_high">
+                    android:background="@drawable/bg_monogram">
 
                     <TextView
                         android:layout_width="wrap_content"

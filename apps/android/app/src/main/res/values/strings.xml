@@ -23,6 +23,7 @@
     <string name="pair_footer">证书固定 · 仅向配对来源发送令牌</string>
 
     <string name="status_idle">等待输入</string>
+    <string name="status_ready">就绪 · 长按电脑可移除</string>
     <string name="status_paired">已配对</string>
     <string name="status_found">已找到电脑</string>
     <string name="status_pair_failed">配对失败</string>
