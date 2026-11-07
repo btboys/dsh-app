@@ -29,3 +29,30 @@ test('an unpaired request is not forwarded to DSH', async () => {
   await gateway.stop()
   await new Promise(resolve => upstream.close(resolve))
 })
+
+test('the phone home page gets the mobile layout injected', async () => {
+  const upstream = createServer((req, res) => {
+    res.setHeader('content-type', 'text/html')
+    res.end('<html><head><title>dsh</title></head><body></body></html>')
+  })
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  const store = new DeviceStore(dir)
+  const gateway = createGateway({
+    store,
+    upstreamOrigin: `http://127.0.0.1:${upstream.address().port}`,
+    port: 0,
+    workspaces: () => [],
+  })
+  const status = await gateway.start()
+  const origin = `http://127.0.0.1:${status.port}`
+  const issued = store.issuePairing({ origin })
+  const device = await store.pair({ code: issued.code, origin, deviceName: 'Phone' })
+  const response = await fetch(`${origin}/`, { headers: { cookie: `dsh_app=${device.token}` } })
+  const html = await response.text()
+  assert.equal(response.status, 200)
+  assert.equal(html.includes('dsh-app-nav'), true)
+  assert.equal(html.includes('打开会话列表'), true)
+  await gateway.stop()
+  await new Promise(resolve => upstream.close(resolve))
+})

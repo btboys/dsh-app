@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { diagnose } from './diagnostics.js'
 import { previewFile, safeChild } from './files.js'
+import { mobileStyle, mobileScript } from './layout.js'
 import { certificateSha256, normalizeOrigin, parseBearer } from './protocol.js'
 
 const TEXT_LIMIT = 64 * 1024

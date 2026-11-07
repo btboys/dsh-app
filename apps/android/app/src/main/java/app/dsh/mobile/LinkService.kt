@@ -53,7 +53,7 @@ class LinkService : Service() {
     private fun note(title: String, text: String): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, ApprovalsActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, "link")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(open)
