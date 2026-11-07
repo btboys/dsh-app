@@ -33,6 +33,7 @@ class GatewayClient(private val computer: Computer) {
                 kind = item.getString("kind"),
                 title = item.optString("toolName", item.optString("kind")),
                 detail = item.optString("reason", item.optJSONArray("questions")?.toString() ?: ""),
+                questions = Questions.parse(item.optJSONArray("questions")),
             )
         }
     }
@@ -41,8 +42,9 @@ class GatewayClient(private val computer: Computer) {
         post("/dsh-app/approvals/answer", JSONObject().put("id", id).put("outcome", outcome), computer.token)
     }
 
-    fun answerQuestion(id: String, answer: JSONObject) {
-        post("/dsh-app/questions/answer", JSONObject().put("id", id).put("answer", answer), computer.token)
+    /** Sends the whole answer batch; the host settles a question call only as one batch. */
+    fun answerQuestions(id: String, answers: JSONObject) {
+        post("/dsh-app/questions/answer", JSONObject().put("id", id).put("answer", answers), computer.token)
     }
 
     fun workspaces(): List<FileEntry> {

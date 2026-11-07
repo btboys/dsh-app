@@ -267,3 +267,47 @@ test('diagnostics report the upstream they actually reached', async t => {
   assert.equal(check.ok, false)
   assert.equal(brokenStatus.checks.some(item => !item.ok), true)
 })
+
+test('a question is settled with the whole answer batch', async () => {
+  const gateway = createGateway({ store: {}, upstreamOrigin: 'http://localhost' })
+  const batch = { answers: [{ id: 'q1', selected: ['A'] }, { id: 'q2', selected: [], custom: '备注' }] }
+  gateway.events(event => {
+    if (event.kind !== 'question') return
+    assert.equal(event.questions[0].id, 'q1')
+    assert.equal(event.settle(batch), true)
+  })
+  assert.deepEqual(
+    await gateway.publish({ kind: 'question', questions: [{ id: 'q1', question: '用哪种方式？' }] }),
+    batch,
+  )
+})
+
+test('answering a question requires the whole answer batch', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-app-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new DeviceStore(dir)
+  const gateway = createGateway({ store, upstreamOrigin: 'http://localhost', port: 0 })
+  const status = await gateway.start()
+  t.after(() => gateway.stop())
+  const origin = `http://127.0.0.1:${status.port}`
+  const { code } = store.issuePairing({ origin })
+  const device = await store.pair({ code, origin })
+  let pendingId
+  gateway.events(event => {
+    if (event.kind === 'question') pendingId = event.id
+  })
+  const published = gateway.publish({ kind: 'question', questions: [{ id: 'q1', question: '选一个' }] })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const headers = { authorization: `Bearer ${device.token}`, 'content-type': 'application/json' }
+  const malformed = await fetch(`${origin}/dsh-app/questions/answer`, {
+    method: 'POST', headers, body: JSON.stringify({ id: pendingId, answer: { nope: true } }),
+  })
+  assert.equal(malformed.status, 400)
+  assert.deepEqual(await malformed.json(), { error: 'invalid_answer' })
+  const batch = { answers: [{ id: 'q1', selected: ['A'] }] }
+  const accepted = await fetch(`${origin}/dsh-app/questions/answer`, {
+    method: 'POST', headers, body: JSON.stringify({ id: pendingId, answer: batch }),
+  })
+  assert.equal(accepted.status, 200)
+  assert.deepEqual(await published, batch)
+})

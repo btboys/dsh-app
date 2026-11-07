@@ -152,9 +152,14 @@ export function createGateway({ store, tls, upstreamOrigin, port = 0, remoteOrig
     }
     if (req.method === 'POST' && url.pathname === '/dsh-app/questions/answer') {
       const body = await readJson(req)
+      const answer = body.answer
+      // The host settles a question call only as one batch; reject partial answers up front.
+      if (!answer || !Array.isArray(answer.answers) || answer.answers.length === 0) {
+        return send(res, 400, { error: 'invalid_answer' })
+      }
       const item = pending.get(body.id)
       if (!item || item.kind !== 'question') return send(res, 404, { error: 'not_found' })
-      if (!item.settle(body.answer)) return send(res, 404, { error: 'not_found' })
+      if (!item.settle(answer)) return send(res, 404, { error: 'not_found' })
       return send(res, 200, { ok: true })
     }
     if (req.method === 'GET' && url.pathname === '/dsh-app/workspaces') {
