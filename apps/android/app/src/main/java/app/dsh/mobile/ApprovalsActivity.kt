@@ -1,6 +1,8 @@
 package app.dsh.mobile
 
 import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -10,32 +12,45 @@ import kotlin.concurrent.thread
 class ApprovalsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_approvals)
+        findViewById<View>(R.id.backButton).setOnClickListener { finish() }
         val computer = ComputerStore(this).active() ?: return finish()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 48, 48, 48) }
-        root.addView(TextView(this).apply { text = "待处理"; textSize = 22f })
-        setContentView(root)
+        val list = findViewById<LinearLayout>(R.id.approvalList)
+        val empty = findViewById<View>(R.id.approvalsEmpty)
+        val count = findViewById<TextView>(R.id.pendingCount)
+        count.text = "…"
         thread {
-            val items = GatewayClient(computer).approvals()
+            val items = runCatching { GatewayClient(computer).approvals() }.getOrElse { emptyList() }
             runOnUiThread {
-                if (items.isEmpty()) root.addView(TextView(this).apply { text = "没有待审批或待回答的问题。" })
-                items.forEach { item ->
-                    root.addView(TextView(this).apply { text = "${item.title}\n${item.detail}" })
-                    if (item.kind == "approval") {
-                        root.addView(decision(computer, item.id, "允许一次", "allowed-once"))
-                        root.addView(decision(computer, item.id, "拒绝", "rejected"))
+                count.text = String.format("%02d", items.size)
+                empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+                val inflater = LayoutInflater.from(this)
+                items.forEachIndexed { index, item ->
+                    val row = inflater.inflate(R.layout.item_approval, list, false)
+                    row.findViewById<TextView>(R.id.kindBadge).apply {
+                        text = getString(if (item.kind == "approval") R.string.approval_kind_approval else R.string.approval_kind_question)
+                        setTextColor(getColor(if (item.kind == "approval") R.color.accent else R.color.warn))
                     }
+                    row.findViewById<TextView>(R.id.itemIndex).text = String.format("%02d", index + 1)
+                    row.findViewById<TextView>(R.id.itemTitle).text = item.title
+                    row.findViewById<TextView>(R.id.itemDetail).apply {
+                        text = item.detail
+                        visibility = if (item.detail.isBlank()) View.GONE else View.VISIBLE
+                    }
+                    val actions = row.findViewById<View>(R.id.itemActions)
+                    actions.visibility = if (item.kind == "approval") View.VISIBLE else View.GONE
+                    row.findViewById<Button>(R.id.allowOnce).setOnClickListener { answer(computer, item.id, "allowed-once") }
+                    row.findViewById<Button>(R.id.reject).setOnClickListener { answer(computer, item.id, "rejected") }
+                    list.addView(row)
                 }
             }
         }
     }
 
-    private fun decision(computer: Computer, id: String, label: String, outcome: String) = Button(this).apply {
-        text = label
-        setOnClickListener {
-            thread {
-                GatewayClient(computer).answerApproval(id, outcome)
-                runOnUiThread { finish() }
-            }
+    private fun answer(computer: Computer, id: String, outcome: String) {
+        thread {
+            runCatching { GatewayClient(computer).answerApproval(id, outcome) }
+            runOnUiThread { finish() }
         }
     }
 }

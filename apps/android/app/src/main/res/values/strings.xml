@@ -1,6 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DSH</string>
+    <string name="font_mono">monospace</string>
+
+    <string name="wordmark">远程控制台</string>
+    <string name="wordmark_sub">DSH · CONSOLE</string>
+    <string name="status_local">本地</string>
+    <string name="status_remote">远程</string>
+
+    <string name="section_paired">已配对电脑</string>
+    <string name="section_pair">配对新的电脑</string>
+    <string name="paired_empty_title">还没有配对的电脑</string>
+    <string name="paired_empty_body">在电脑上打开 设置 → 移动访问，生成配对码。</string>
+    <string name="paired_empty_step">01 输入电脑地址  ·  02 输入配对码  ·  03 配对</string>
+
+    <string name="label_origin">电脑地址</string>
+    <string name="label_code">配对码</string>
+    <string name="hint_origin">http://192.168.1.8:3443</string>
+    <string name="hint_code">6 位配对码</string>
+    <string name="action_pair">配对这台电脑</string>
+    <string name="action_discover">搜索局域网</string>
+    <string name="pair_footer">证书固定 · 仅向配对来源发送令牌</string>
+
+    <string name="status_idle">等待输入</string>
+    <string name="status_paired">已配对</string>
+    <string name="status_found">已找到电脑</string>
+    <string name="status_pair_failed">配对失败</string>
+    <string name="status_searching">正在搜索局域网…</string>
+    <string name="status_not_found">没有找到电脑</string>
+
+    <string name="computer_never_seen">尚未连接</string>
+    <string name="computer_last_seen">上次连接 %1$s</string>
+
+    <string name="session_back">电脑</string>
+    <string name="nav_approvals">审批</string>
+    <string name="nav_files">文件</string>
+    <string name="nav_diagnostics">诊断</string>
+
+    <string name="approvals_title">待处理</string>
+    <string name="approvals_sub">审批与问题</string>
+    <string name="approvals_empty_title">一切清空</string>
+    <string name="approvals_empty_body">电脑上没有等待你处理的审批或问题。</string>
+    <string name="approval_kind_approval">审批</string>
+    <string name="approval_kind_question">问题</string>
+    <string name="approval_allow_once">允许一次</string>
+    <string name="approval_reject">拒绝</string>
+
+    <string name="files_title">文件</string>
+    <string name="files_root">工作区</string>
+    <string name="files_empty">这个目录是空的</string>
+    <string name="files_preview_close">返回列表</string>
+    <string name="files_preview_unsupported">这个文件不能以文本预览。</string>
+
+    <string name="diagnostics_title">连接诊断</string>
+    <string name="diagnostics_sub">端到端检查</string>
+    <string name="diagnostics_ok">正常</string>
+    <string name="diagnostics_fail">失败</string>
+    <string name="diagnostics_summary">%1$d / %2$d 通过</string>
+
+    <string name="computer_removed">已移除这台电脑</string>
+    <string name="time_just_now">刚刚</string>
+    <string name="time_minutes">%1$d 分钟前</string>
+    <string name="time_hours">%1$d 小时前</string>
+    <string name="time_days">%1$d 天前</string>
+    <string name="status_pairing">正在配对…</string>
     <string name="link_channel">DSH 连接</string>
     <string name="link_running">正在保持与电脑的连接</string>
 </resources>
