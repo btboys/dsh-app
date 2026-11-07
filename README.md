@@ -23,3 +23,10 @@ gradle wrapper
 On the same LAN, search for the computer, paste the pairing code, then open the session. Leaving the LAN requires the remote origin you configured on the computer.
 
 Notifications need the connection service to stay running. They stop if Android kills the app.
+
+## Troubleshooting
+
+If the phone cannot find the computer on the same LAN:
+
+- Confirm that the phone and the computer are on the same network, and that the gateway opened by the plugin is running; the LAN address is listed in **设置 → 移动访问**.
+- If pairing still fails, check whether the pairing code has expired (a code is valid for five minutes) and generate a new one.
